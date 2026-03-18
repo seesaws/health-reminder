@@ -33,8 +33,7 @@ Click the extension icon in the toolbar, then click **点击打开健康小助�
 ### Options
 
 | Setting | Description |
-
-|---|---|
+| --- | --- |
 | Notifications toggle | Enable or disable all reminders |
 | Reminder messages | Add, edit, or delete reminder texts (max 100 chars each) |
 | Interval | Random delay between reminders, in minutes (min–max range) |
@@ -57,8 +56,7 @@ The built output is placed in `ui/dist/`. Copy or reference the root folder when
 ## Permissions
 
 | Permission | Reason |
-
-|---|---|
+| --- | --- |
 | `notifications` | Display reminder notifications |
 | `storage` | Persist user settings via Chrome sync storage |
 | `alarms` | Schedule reminders at timed intervals |
