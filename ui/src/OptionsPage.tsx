@@ -29,17 +29,42 @@ const defaultReminders = [
 const DEFAULT_MIN = 5;
 const DEFAULT_MAX = 15;
 
-// 判断字符串是否为空或仅包含空白字符
-const isEmptyOrWhitespace = (str: string): boolean => {
-  return str.trim().length === 0;
-};
+const isEmptyOrWhitespace = (str: string): boolean => str.trim().length === 0;
 
-// 校验时间格式 HH:mm 且有效
 const isValidTime = (time: string): boolean => {
   if (!/^\d{1,2}:\d{2}$/.test(time)) return false;
   const [h, m] = time.split(':').map(Number);
   return h >= 0 && h < 24 && m >= 0 && m < 60;
 };
+
+// 返回错误信息，无错误返回 null
+function validate(
+  notificationsEnabled: boolean,
+  reminders: string[],
+  minMinutes: number,
+  maxMinutes: number,
+  quietHoursEnabled: boolean,
+  quietStart: string,
+  quietEnd: string
+): string | null {
+  if (!notificationsEnabled) return null;
+
+  if (!reminders.some(r => !isEmptyOrWhitespace(r))) return '提醒内容不能为空或只包含空格！';
+
+  const min = Math.floor(Number(minMinutes));
+  const max = Math.floor(Number(maxMinutes));
+  if (isNaN(min) || isNaN(max)) return '请输入有效的数字！';
+  if (min < 1 || min > 60) return '最小间隔必须在 1～60 分钟之间！';
+  if (max < 1 || max > 60) return '最大间隔必须在 1～60 分钟之间！';
+  if (min > max) return '最小间隔不能大于最大间隔！';
+
+  if (quietHoursEnabled) {
+    if (!isValidTime(quietStart)) return '免打扰开始时间格式错误！应为 HH:mm';
+    if (!isValidTime(quietEnd)) return '免打扰结束时间格式错误！应为 HH:mm';
+  }
+
+  return null;
+}
 
 export default function OptionsPage() {
   const [reminders, setReminders] = useState<string[]>(defaultReminders);
@@ -55,7 +80,6 @@ export default function OptionsPage() {
   const [errorSnackbarOpen, setErrorSnackbarOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // 加载配置
   useEffect(() => {
     if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
       chrome.storage.sync.get([
@@ -67,161 +91,57 @@ export default function OptionsPage() {
         'quietStart',
         'quietEnd'
       ], (result) => {
-        // reminders
-        if (result.reminders) {
-          try {
-            const parsed = JSON.parse(result.reminders);
-            if (Array.isArray(parsed)) {
-              const validReminders = parsed
-                .filter((item: any): item is string => typeof item === 'string')
-                .filter(r => !isEmptyOrWhitespace(r));
-              if (validReminders.length > 0) {
-                setReminders(validReminders);
-              }
-            }
-          } catch (e) {
-            console.warn('Failed to parse reminders');
-          }
+        if (Array.isArray(result.reminders)) {
+          const valid = result.reminders
+            .filter((item: unknown): item is string => typeof item === 'string')
+            .filter(r => !isEmptyOrWhitespace(r));
+          if (valid.length > 0) setReminders(valid);
         }
 
-        // 数字
         const min = parseInt(result.minMinutes, 10) || DEFAULT_MIN;
         const max = parseInt(result.maxMinutes, 10) || DEFAULT_MAX;
         setMinMinutes(Math.max(1, Math.min(60, min)));
         setMaxMinutes(Math.max(min, Math.min(60, max)));
 
-        // 开关
-        setNotificationsEnabled(result.notificationsEnabled !== false); // 默认 true
+        setNotificationsEnabled(result.notificationsEnabled !== false);
         setQuietHoursEnabled(!!result.quietHoursEnabled);
 
-        // 时间段
         setQuietStart(typeof result.quietStart === 'string' && isValidTime(result.quietStart) ? result.quietStart : "23:00");
         setQuietEnd(typeof result.quietEnd === 'string' && isValidTime(result.quietEnd) ? result.quietEnd : "07:00");
       });
     }
   }, []);
 
-  const handleErrorSnackbarClose = () => setErrorSnackbarOpen(false);
-  const handleCloseSnackbar = () => setSnackbarOpen(false);
-  const handleCloseDeleteSnackbar = () => setDeleteSnackbarOpen(false);
-
-  // 表单是否有效
-  const isFormValid = () => {
-    if (!notificationsEnabled) return true; // 如果通知关闭，其他可不填
-
-    const hasValidReminder = reminders.some(r => !isEmptyOrWhitespace(r));
-    if (!hasValidReminder) return false;
-
-    const min = Number(minMinutes);
-    const max = Number(maxMinutes);
-    if (isNaN(min) || isNaN(max)) return false;
-
-    const minInt = Math.floor(min);
-    const maxInt = Math.floor(max);
-    if (minInt < 1 || minInt > 60) return false;
-    if (maxInt < 1 || maxInt > 60) return false;
-    if (minInt > maxInt) return false;
-
-    if (quietHoursEnabled) {
-      if (!isValidTime(quietStart) || !isValidTime(quietEnd)) return false;
+  const handleSave = () => {
+    const error = validate(notificationsEnabled, reminders, minMinutes, maxMinutes, quietHoursEnabled, quietStart, quietEnd);
+    if (error) {
+      setErrorMessage(error);
+      setErrorSnackbarOpen(true);
+      return;
     }
 
-    return true;
-  };
-
-  const handleSave = () => {
-    console.log('[DEBUG] 当前配置:', {
-      reminders,
-      notificationsEnabled,
-      quietHoursEnabled,
-      quietStart,
-      quietEnd,
-      minMinutes,
-      maxMinutes
-    });
-
-    if (!notificationsEnabled) {
-      // 仅保存开关状态
-      if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
-        chrome.storage.sync.set({
-          notificationsEnabled: false,
-          quietHoursEnabled: false, // 关闭通知时，自动关闭免打扰
-        }, () => {
+    if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
+      if (!notificationsEnabled) {
+        chrome.storage.sync.set({ notificationsEnabled: false, quietHoursEnabled: false }, () => {
           setSnackbarOpen(true);
         });
-      } else {
-        setSnackbarOpen(true);
-      }
-      return;
-    }
-
-    // 校验提醒内容
-    const hasValidReminder = reminders.some(r => !isEmptyOrWhitespace(r));
-    if (!hasValidReminder) {
-      setErrorMessage('提醒内容不能为空或只包含空格！');
-      setErrorSnackbarOpen(true);
-      return;
-    }
-
-    // 数字校验
-    let min = Number(minMinutes);
-    let max = Number(maxMinutes);
-    if (isNaN(min) || isNaN(max)) {
-      setErrorMessage('请输入有效的数字！');
-      setErrorSnackbarOpen(true);
-      return;
-    }
-    min = Math.floor(min);
-    max = Math.floor(max);
-    if (min < 1 || min > 60) {
-      setErrorMessage('最小间隔必须在 1～60 分钟之间！');
-      setErrorSnackbarOpen(true);
-      return;
-    }
-    if (max < 1 || max > 60) {
-      setErrorMessage('最大间隔必须在 1～60 分钟之间！');
-      setErrorSnackbarOpen(true);
-      return;
-    }
-    if (min > max) {
-      setErrorMessage('最小间隔不能大于最大间隔！');
-      setErrorSnackbarOpen(true);
-      return;
-    }
-
-    // 免打扰时间校验
-    if (quietHoursEnabled) {
-      if (!isValidTime(quietStart)) {
-        setErrorMessage('免打扰开始时间格式错误！应为 HH:mm');
-        setErrorSnackbarOpen(true);
         return;
       }
-      if (!isValidTime(quietEnd)) {
-        setErrorMessage('免打扰结束时间格式错误！应为 HH:mm');
-        setErrorSnackbarOpen(true);
-        return;
-      }
-    }
 
-    // 清理数据
-    const cleanedReminders = reminders.map(r => r.trim()).filter(r => r !== '');
+      const cleanedReminders = reminders.map(r => r.trim()).filter(r => r !== '');
+      const min = Math.floor(Number(minMinutes));
+      const max = Math.floor(Number(maxMinutes));
 
-    // 保存全部
-    if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
       chrome.storage.sync.set({
-        reminders: JSON.stringify(cleanedReminders),
+        reminders: cleanedReminders,
         minMinutes: min,
         maxMinutes: max,
         notificationsEnabled: true,
         quietHoursEnabled,
         quietStart: quietHoursEnabled ? quietStart : "23:00",
         quietEnd: quietHoursEnabled ? quietEnd : "07:00",
-      }, () => {
-        console.log('✅ 配置已成功保存');
-        setSnackbarOpen(true);
-      });
+      }, () => setSnackbarOpen(true));
     } else {
-      console.log('✅ 模拟保存');
       setSnackbarOpen(true);
     }
   };
@@ -229,20 +149,22 @@ export default function OptionsPage() {
   const addReminder = () => setReminders([...reminders, '']);
   const updateReminder = (index: number, value: string) =>
     setReminders(prev => {
-      const newReminders = [...prev];
-      newReminders[index] = value;
-      return newReminders;
+      const next = [...prev];
+      next[index] = value;
+      return next;
     });
 
   const deleteReminder = (index: number) => {
     if (reminders.length <= 1) {
-      setErrorMessage('你就这么轻言放弃！！！振作起来啊！！！');
+      setErrorMessage('至少保留一条提醒内容！');
       setErrorSnackbarOpen(true);
       return;
     }
     setReminders(reminders.filter((_, i) => i !== index));
     setDeleteSnackbarOpen(true);
   };
+
+  const isFormValid = () => validate(notificationsEnabled, reminders, minMinutes, maxMinutes, quietHoursEnabled, quietStart, quietEnd) === null;
 
   return (
     <Container maxWidth="sm" sx={{ py: 3 }}>
@@ -251,7 +173,6 @@ export default function OptionsPage() {
           自定义健康提醒
         </Typography>
 
-        {/* 通知总开关 */}
         <FormControlLabel
           control={
             <Switch
@@ -264,10 +185,8 @@ export default function OptionsPage() {
           sx={{ mb: 3 }}
         />
 
-        {/* 仅当通知启用时显示其余设置 */}
         {notificationsEnabled && (
           <>
-            {/* 提醒列表 */}
             <Stack spacing={2} sx={{ mb: 3 }}>
               {reminders.map((text, index) => (
                 <Box key={index} display="flex" gap={1}>
@@ -296,7 +215,6 @@ export default function OptionsPage() {
               + 添加提醒
             </Button>
 
-            {/* 时间范围设置 */}
             <Box sx={{ mb: 3 }}>
               <Typography variant="body1" fontWeight="medium" gutterBottom>
                 随机提醒间隔（分钟）
@@ -328,7 +246,6 @@ export default function OptionsPage() {
               </Typography>
             </Box>
 
-            {/* 免打扰设置 */}
             <Box sx={{ mb: 3 }}>
               <FormControlLabel
                 control={
@@ -348,22 +265,18 @@ export default function OptionsPage() {
                   <Box display="flex" alignItems="center" gap={1}>
                     <TextField
                       size="small"
+                      type="time"
                       value={quietStart}
                       onChange={(e) => setQuietStart(e.target.value)}
-                      placeholder="23:00"
-                      inputProps={{ maxLength: 5 }}
-                      error={!isValidTime(quietStart) && quietStart !== ''}
-                      helperText={!isValidTime(quietStart) && quietStart !== '' ? "格式: HH:mm" : ""}
+                      inputProps={{ step: 60 }}
                     />
                     <Typography>至</Typography>
                     <TextField
                       size="small"
+                      type="time"
                       value={quietEnd}
                       onChange={(e) => setQuietEnd(e.target.value)}
-                      placeholder="07:00"
-                      inputProps={{ maxLength: 5 }}
-                      error={!isValidTime(quietEnd) && quietEnd !== ''}
-                      helperText={!isValidTime(quietEnd) && quietEnd !== '' ? "格式: HH:mm" : ""}
+                      inputProps={{ step: 60 }}
                     />
                   </Box>
                 </Box>
@@ -383,36 +296,35 @@ export default function OptionsPage() {
         </Button>
       </Paper>
 
-      {/* Snackbars */}
       <Snackbar
         open={snackbarOpen}
         autoHideDuration={2000}
-        onClose={handleCloseSnackbar}
+        onClose={() => setSnackbarOpen(false)}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
-        <Alert onClose={handleCloseSnackbar} severity="success" sx={{ width: '100%' }}>
+        <Alert onClose={() => setSnackbarOpen(false)} severity="success" sx={{ width: '100%' }}>
           ✅ 设置已保存！忙去吧！
         </Alert>
       </Snackbar>
 
       <Snackbar
         open={deleteSnackbarOpen}
-        autoHideDuration={3000}
-        onClose={handleCloseDeleteSnackbar}
+        autoHideDuration={2000}
+        onClose={() => setDeleteSnackbarOpen(false)}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
-        <Alert onClose={handleCloseDeleteSnackbar} severity="info" sx={{ width: '100%' }}>
-          🗑️ 你就这么轻言放弃！！！振作起来啊！！！
+        <Alert onClose={() => setDeleteSnackbarOpen(false)} severity="info" sx={{ width: '100%' }}>
+          🗑️ 已删除该提醒
         </Alert>
       </Snackbar>
 
       <Snackbar
         open={errorSnackbarOpen}
         autoHideDuration={3000}
-        onClose={handleErrorSnackbarClose}
+        onClose={() => setErrorSnackbarOpen(false)}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
-        <Alert onClose={handleErrorSnackbarClose} severity="error" sx={{ width: '100%' }}>
+        <Alert onClose={() => setErrorSnackbarOpen(false)} severity="error" sx={{ width: '100%' }}>
           ❌ {errorMessage}
         </Alert>
       </Snackbar>
