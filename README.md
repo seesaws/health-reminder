@@ -15,11 +15,13 @@ A Chrome extension that sends randomized health reminders at configurable interv
 
 1. Clone or download this repository
 2. Build the UI:
+
    ```bash
    cd ui
    npm install
    npm run build
    ```
+
 3. Open Chrome and navigate to `chrome://extensions`
 4. Enable **Developer mode** (top right)
 5. Click **Load unpacked** and select the root project folder
@@ -31,6 +33,7 @@ Click the extension icon in the toolbar, then click **点击打开健康小助�
 ### Options
 
 | Setting | Description |
+
 |---|---|
 | Notifications toggle | Enable or disable all reminders |
 | Reminder messages | Add, edit, or delete reminder texts (max 100 chars each) |
@@ -54,6 +57,7 @@ The built output is placed in `ui/dist/`. Copy or reference the root folder when
 ## Permissions
 
 | Permission | Reason |
+
 |---|---|
 | `notifications` | Display reminder notifications |
 | `storage` | Persist user settings via Chrome sync storage |
